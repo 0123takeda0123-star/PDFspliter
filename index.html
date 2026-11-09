@@ -1,0 +1,636 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF分割ポイント選択</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: #f3f4f6;
+  color: #222;
+  font-family: sans-serif;
+}
+
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+
+h1 {
+  font-size: 23px;
+  margin: 0 0 8px;
+}
+
+.description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.toolbar {
+  background: white;
+  padding: 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+button, .file-label {
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #374151;
+  color: white;
+}
+
+button:hover, .file-label:hover {
+  opacity: .85;
+}
+
+button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.file-label {
+  background: #2563eb;
+}
+
+#fileInput {
+  display: none;
+}
+
+#fileName {
+  font-size: 13px;
+  color: #555;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  font-size: 13px;
+  color: #666;
+  margin-left: auto;
+}
+
+.output-panel {
+  background: white;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.output-header h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.output-help {
+  font-size: 12px;
+  color: #777;
+  margin: 8px 0;
+}
+
+#output {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 16px;
+  font-family: monospace;
+  background: #f9fafb;
+}
+
+#preview {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.8;
+}
+
+#message {
+  font-size: 13px;
+  color: #2563eb;
+  margin-top: 8px;
+  min-height: 18px;
+}
+
+#dropArea {
+  background: white;
+  border: 2px dashed #bbb;
+  border-radius: 10px;
+  padding: 25px;
+  text-align: center;
+  color: #777;
+  margin-bottom: 16px;
+}
+
+#dropArea.dragover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+#thumbnails {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 14px;
+}
+
+.page-card {
+  background: white;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  position: relative;
+  transition: border-color .1s;
+}
+
+.page-card:hover {
+  border-color: #93c5fd;
+}
+
+.page-card.selected {
+  border-color: #ea8b24;
+  background: #fff8ed;
+}
+
+.page-card.implicit {
+  border-color: #2563eb;
+  background: #eff6ff;
+  cursor: default;
+}
+
+.page-card canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #eee;
+  border: 1px solid #ddd;
+}
+
+.page-number {
+  text-align: center;
+  font-size: 13px;
+  padding-top: 7px;
+  font-weight: bold;
+}
+
+.page-state {
+  text-align: center;
+  font-size: 11px;
+  margin-top: 4px;
+  color: #777;
+  min-height: 15px;
+}
+
+.page-card.selected .page-state {
+  color: #b45309;
+  font-weight: bold;
+}
+
+.page-card.implicit .page-state {
+  color: #2563eb;
+  font-weight: bold;
+}
+
+.loading {
+  text-align: center;
+  padding: 30px;
+  color: #666;
+}
+
+@media (max-width: 600px) {
+  body {
+    padding: 10px;
+  }
+
+  #thumbnails {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .page-card {
+    padding: 5px;
+  }
+
+  .status {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <h1>PDF分割ポイント選択</h1>
+  <div class="description">
+    各文書の先頭ページをクリックして選択してください。
+    選択位置をPDFsam用の分割ページ番号に変換します。
+  </div>
+
+  <div class="toolbar">
+    <label class="file-label" for="fileInput">
+      PDFを読み込む
+    </label>
+    <input type="file" id="fileInput" accept="application/pdf">
+
+    <button id="clearButton" disabled>
+      選択解除
+    </button>
+
+    <span id="fileName">PDF未選択</span>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div id="dropArea">
+    PDFファイルをここにドラッグ＆ドロップ
+  </div>
+
+  <div class="output-panel">
+    <div class="output-header">
+      <h2>PDFsam用 分割ページ番号</h2>
+      <button id="copyButton" disabled>
+        コピー
+      </button>
+    </div>
+
+    <div class="output-help">
+      文書の先頭ページから1を引いた値を出力します。
+      1ページ目は自動的に最初の文書として扱います。
+    </div>
+
+    <input type="text" id="output" readonly
+      placeholder="ここに分割位置が表示されます">
+
+    <div id="preview">
+      分割位置：未設定
+    </div>
+
+    <div id="message"></div>
+  </div>
+
+  <div id="thumbnails"></div>
+
+</div>
+
+<script>
+// ==================================================
+// PDF.js設定
+// ==================================================
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// ==================================================
+// 状態管理
+// ==================================================
+
+let pdfDocument = null;
+let totalPages = 0;
+
+// 文書の先頭ページ番号を保持する
+// 1ページ目は固定で含める
+let selectedStarts = new Set([1]);
+
+// ==================================================
+// DOM
+// ==================================================
+
+const fileInput = document.getElementById("fileInput");
+const fileName = document.getElementById("fileName");
+const status = document.getElementById("status");
+const thumbnails = document.getElementById("thumbnails");
+const output = document.getElementById("output");
+const preview = document.getElementById("preview");
+const message = document.getElementById("message");
+const copyButton = document.getElementById("copyButton");
+const clearButton = document.getElementById("clearButton");
+const dropArea = document.getElementById("dropArea");
+
+// ==================================================
+// PDF読み込み
+// ==================================================
+
+fileInput.addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (file) loadPDF(file);
+});
+
+async function loadPDF(file) {
+
+  if (file.type !== "application/pdf") {
+    alert("PDFファイルを選択してください。");
+    return;
+  }
+
+  fileName.textContent = file.name;
+  status.textContent = "PDF読み込み中...";
+  thumbnails.innerHTML = "";
+  message.textContent = "";
+
+  output.value = "";
+  preview.textContent = "読み込み中...";
+
+  copyButton.disabled = true;
+  clearButton.disabled = true;
+
+  selectedStarts = new Set([1]);
+
+  try {
+    const buffer = await file.arrayBuffer();
+
+    pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(buffer)
+    }).promise;
+
+    totalPages = pdfDocument.numPages;
+
+    status.textContent =
+      `全 ${totalPages} ページ`;
+
+    await renderThumbnails();
+
+    clearButton.disabled = false;
+    updateOutput();
+
+  } catch (error) {
+    console.error(error);
+    alert("PDFの読み込みに失敗しました。\n" + error.message);
+    status.textContent = "読み込み失敗";
+  }
+}
+
+// ==================================================
+// サムネイル描画
+// ==================================================
+
+async function renderThumbnails() {
+
+  thumbnails.innerHTML = "";
+
+  for (let pageNumber = 1;
+       pageNumber <= totalPages;
+       pageNumber++) {
+
+    status.textContent =
+      `サムネイル生成中 ${pageNumber} / ${totalPages}`;
+
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+
+      const originalViewport = page.getViewport({
+        scale: 1
+      });
+
+      const scale = Math.min(
+        220 / originalViewport.width,
+        0.35
+      );
+
+      const viewport = page.getViewport({
+        scale: scale
+      });
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+
+      const card = document.createElement("div");
+      card.className = "page-card";
+      card.dataset.page = pageNumber;
+
+      const number = document.createElement("div");
+      number.className = "page-number";
+      number.textContent = `${pageNumber} ページ`;
+
+      const state = document.createElement("div");
+      state.className = "page-state";
+
+      card.appendChild(canvas);
+      card.appendChild(number);
+      card.appendChild(state);
+
+      // ページ1は固定
+      if (pageNumber === 1) {
+        card.classList.add("implicit");
+      }
+
+      card.addEventListener("click", () => {
+        togglePage(pageNumber);
+      });
+
+      thumbnails.appendChild(card);
+
+      updateCard(card, pageNumber);
+
+    } catch (error) {
+      console.error(
+        `ページ ${pageNumber} の描画に失敗`,
+        error
+      );
+    }
+  }
+
+  status.textContent =
+    `全 ${totalPages} ページ 読み込み完了`;
+}
+
+// ==================================================
+// 選択・解除
+// ==================================================
+
+function togglePage(pageNumber) {
+
+  // 1ページ目は固定
+  if (pageNumber === 1) return;
+
+  if (selectedStarts.has(pageNumber)) {
+    selectedStarts.delete(pageNumber);
+  } else {
+    selectedStarts.add(pageNumber);
+  }
+
+  const card = thumbnails.querySelector(
+    `[data-page="${pageNumber}"]`
+  );
+
+  if (card) {
+    updateCard(card, pageNumber);
+  }
+
+  updateOutput();
+}
+
+// ==================================================
+// サムネイルの表示更新
+// ==================================================
+
+function updateCard(card, pageNumber) {
+
+  const state = card.querySelector(".page-state");
+
+  card.classList.remove("selected", "implicit");
+
+  if (pageNumber === 1) {
+    card.classList.add("implicit");
+    state.textContent = "最初の文書（固定）";
+
+  } else if (selectedStarts.has(pageNumber)) {
+    card.classList.add("selected");
+    state.textContent = "文書の先頭";
+
+  } else {
+    state.textContent = "クリックして選択";
+  }
+}
+
+// ==================================================
+// PDFsam用の文字列生成
+// ==================================================
+
+function updateOutput() {
+
+  // 先頭ページ番号を昇順に並べる
+  const starts = [...selectedStarts]
+    .sort((a, b) => a - b);
+
+  // 各文書の先頭から1を引く
+  // 1ページ目は除外
+  const splitPoints = starts
+    .filter(page => page > 1)
+    .map(page => page - 1);
+
+  // カンマ区切り
+  const csv = splitPoints.join(",");
+
+  output.value = csv;
+
+  copyButton.disabled = splitPoints.length === 0;
+  clearButton.disabled = !pdfDocument;
+
+  // 分割後のページ範囲を表示
+  const ranges = [];
+
+  starts.forEach((start, index) => {
+
+    const end = index < starts.length - 1
+      ? starts[index + 1] - 1
+      : totalPages;
+
+    ranges.push(`${start}～${end}ページ`);
+  });
+
+  preview.textContent =
+    `文書数：${starts.length} ｜ 分割位置：` +
+    (csv || "なし") +
+    ` ｜ 出力：${ranges.join(" / ")}`;
+
+  message.textContent = "";
+}
+
+// ==================================================
+// 選択解除
+// ==================================================
+
+clearButton.addEventListener("click", () => {
+
+  if (!pdfDocument) return;
+
+  selectedStarts = new Set([1]);
+
+  const cards = thumbnails.querySelectorAll(".page-card");
+
+  cards.forEach(card => {
+    const page = Number(card.dataset.page);
+    updateCard(card, page);
+  });
+
+  updateOutput();
+});
+
+// ==================================================
+// クリップボードコピー
+// ==================================================
+
+copyButton.addEventListener("click", async () => {
+
+  const text = output.value;
+
+  if (!text) return;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    message.textContent = "コピーしました。";
+  } catch (error) {
+
+    // Clipboard APIが使えない場合の代替処理
+    output.select();
+
+    const success = document.execCommand("copy");
+
+    message.textContent = success
+      ? "コピーしました。"
+      : "コピーできませんでした。手動でコピーしてください。";
+  }
+});
+
+// ==================================================
+// ドラッグ＆ドロップ
+// ==================================================
+
+dropArea.addEventListener("dragover", event => {
+  event.preventDefault();
+  dropArea.classList.add("dragover");
+});
+
+dropArea.addEventListener("dragleave", () => {
+  dropArea.classList.remove("dragover");
+});
+
+dropArea.addEventListener("drop", event => {
+
+  event.preventDefault();
+  dropArea.classList.remove("dragover");
+
+  const file = event.dataTransfer.files[0];
+
+  if (file) {
+    loadPDF(file);
+  }
+});
+
+</script>
+</body>
+</html>
